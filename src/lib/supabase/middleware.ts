@@ -2,15 +2,18 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 import { env } from "@/lib/env";
+import { isProtectedPath } from "@/lib/auth/paths";
 
 /**
- * Refreshes the Supabase auth session on every matched request and keeps the
- * auth cookies in sync between the browser and the server.
+ * Refreshes the Supabase auth session on every matched request, keeps the auth
+ * cookies in sync between the browser and the server, AND guards the protected
+ * routes (/dashboard, /profile, /apply): unauthenticated users are redirected to
+ * /login?next=<original path>.
  *
  * Wired from the root `src/proxy.ts` (Next.js 16 renamed `middleware` to
- * `proxy`). Follows the official @supabase/ssr cookie pattern: read cookies
- * from the request, write refreshed cookies onto BOTH the request and the
- * outgoing response.
+ * `proxy`). Follows the official @supabase/ssr cookie pattern: read cookies from
+ * the request, write refreshed cookies onto BOTH the request and the outgoing
+ * response.
  */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -37,8 +40,30 @@ export async function updateSession(request: NextRequest) {
   );
 
   // IMPORTANT: do not run code between createServerClient and getUser().
-  // getUser() revalidates the token and triggers the cookie refresh above.
-  await supabase.auth.getUser();
+  // getUser() revalidates the token with the auth server (never trust
+  // getSession() alone for protection) and triggers the cookie refresh above.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Guard protected routes for unauthenticated users.
+  if (!user && isProtectedPath(request.nextUrl.pathname)) {
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.search = "";
+    // Preserve where they were headed as a same-origin relative path.
+    loginUrl.searchParams.set(
+      "next",
+      `${request.nextUrl.pathname}${request.nextUrl.search}`
+    );
+
+    const redirectResponse = NextResponse.redirect(loginUrl);
+    // Carry over any refreshed auth cookies so the redirect stays consistent.
+    supabaseResponse.cookies.getAll().forEach((cookie) => {
+      redirectResponse.cookies.set(cookie);
+    });
+    return redirectResponse;
+  }
 
   return supabaseResponse;
 }
