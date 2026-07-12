@@ -21,6 +21,33 @@ const phoneRegex = /^\+?[0-9\s-]{7,20}$/;
 
 const STORAGE_BUCKET_PREFIX = "application-uploads";
 
+/**
+ * Minimum applicant age (years). A single constant so the client date picker,
+ * the shared zod schema, and any UI copy all agree on the rule.
+ */
+export const MIN_AGE = 16;
+
+/** Return true when `dateStr` (yyyy-MM-dd) is at least `years` years ago. */
+function isAtLeastYearsOld(dateStr: string, years: number): boolean {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return false;
+  const now = new Date();
+  const cutoffYear = now.getFullYear() - years;
+  if (y !== cutoffYear) return y < cutoffYear;
+  const month = now.getMonth() + 1;
+  if (m !== month) return m < month;
+  return d <= now.getDate();
+}
+
+/** Return true when `dateStr` (yyyy-MM-dd) is strictly before today. */
+function isInPast(dateStr: string): boolean {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return false;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return new Date(y, m - 1, d) < today;
+}
+
 // ---------------------------------------------------------------------------
 // Profile
 // ---------------------------------------------------------------------------
@@ -34,12 +61,18 @@ export const profileSchema = z.object({
   city: z.string().trim().min(2, "Please enter your city.").max(80),
   date_of_birth: z
     .string()
-    .refine((v) => !Number.isNaN(Date.parse(v)), "Enter a valid date.")
     .refine(
-      (v) => new Date(v) < new Date(new Date().toDateString()),
-      "Date of birth must be in the past."
+      (v) => /^\d{4}-\d{2}-\d{2}$/.test(v),
+      "Please select your date of birth."
+    )
+    .refine((v) => isInPast(v), "Date of birth must be in the past.")
+    .refine(
+      (v) => isAtLeastYearsOld(v, MIN_AGE),
+      `You must be at least ${MIN_AGE} years old.`
     ),
-  gender: z.enum(["male", "female", "other", "prefer_not_to_say"]),
+  gender: z.enum(["male", "female", "other", "prefer_not_to_say"], {
+    error: "Please select your gender.",
+  }),
   telephone: z
     .string()
     .regex(phoneRegex, "Enter a valid phone number.")
@@ -61,6 +94,96 @@ export const profileSchema = z.object({
 });
 
 export type ProfileInput = z.infer<typeof profileSchema>;
+
+// ---------------------------------------------------------------------------
+// Profile documents (CNIC front/back + passport photo)
+// ---------------------------------------------------------------------------
+
+/** Hard size ceiling for any uploaded profile document (matches the bucket). */
+export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024; // 10MB
+/** Images are compressed client-side down to this target where possible. */
+export const COMPRESSION_TARGET_BYTES = 2 * 1024 * 1024; // 2MB
+
+export interface ProfileDocumentSlot {
+  /** Stable slot id, used in the object filename (`{slot}-{ts}.{ext}`). */
+  key: "cnic_front" | "cnic_back" | "photo";
+  /** The `profiles` column this slot's storage path is saved to. */
+  column: "cnic_front_path" | "cnic_back_path" | "photo_path";
+  label: string;
+  description: string;
+  /** `accept` attribute for the file input. */
+  accept: string;
+  /** Mime types allowed after selection (client pre-upload check). */
+  acceptedMimeTypes: string[];
+  /** True when only images are allowed (no PDF) — the passport photo. */
+  imageOnly: boolean;
+  /** Preferred camera on mobile capture / getUserMedia. */
+  cameraFacing: "environment" | "user";
+}
+
+const IMAGE_MIME = ["image/jpeg", "image/png", "image/webp"];
+const CNIC_MIME = [...IMAGE_MIME, "application/pdf"];
+
+export const PROFILE_DOCUMENT_SLOTS: readonly ProfileDocumentSlot[] = [
+  {
+    key: "cnic_front",
+    column: "cnic_front_path",
+    label: "CNIC (front)",
+    description: "Front side of your national ID card.",
+    accept: "image/*,.pdf",
+    acceptedMimeTypes: CNIC_MIME,
+    imageOnly: false,
+    cameraFacing: "environment",
+  },
+  {
+    key: "cnic_back",
+    column: "cnic_back_path",
+    label: "CNIC (back)",
+    description: "Back side of your national ID card.",
+    accept: "image/*,.pdf",
+    acceptedMimeTypes: CNIC_MIME,
+    imageOnly: false,
+    cameraFacing: "environment",
+  },
+  {
+    key: "photo",
+    column: "photo_path",
+    label: "Passport-size photo",
+    description: "A recent passport-style photograph of your face.",
+    accept: "image/*",
+    acceptedMimeTypes: IMAGE_MIME,
+    imageOnly: true,
+    cameraFacing: "user",
+  },
+] as const;
+
+/**
+ * Build the full profile-save schema for a specific user. Extends
+ * {@link profileSchema} with the three document paths, each REQUIRED and each
+ * constrained to the user's own `{userId}/` folder — mirroring what storage RLS
+ * (0007) enforces. Used identically client-side (react-hook-form) and
+ * server-side (the `saveProfile` action, the security boundary).
+ */
+export function buildProfileSchema(userId: string) {
+  const docPath = (label: string) =>
+    z
+      .string()
+      .trim()
+      .min(1, `Please upload the ${label}.`)
+      .refine(
+        (p) => p.startsWith(`${userId}/`),
+        "This file must be uploaded to your own folder."
+      );
+
+  return profileSchema.extend({
+    cnic_front_path: docPath("CNIC (front)"),
+    cnic_back_path: docPath("CNIC (back)"),
+    photo_path: docPath("passport-size photo"),
+  });
+}
+
+export type ProfileSchema = ReturnType<typeof buildProfileSchema>;
+export type ProfileSaveInput = z.infer<ProfileSchema>;
 
 // ---------------------------------------------------------------------------
 // Application section schemas (mirror the RPC's per-section checks)
