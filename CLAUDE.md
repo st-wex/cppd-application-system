@@ -54,6 +54,20 @@ Staff  ──▶ Directus (admin UI) ──────────────�
   migration, and apply it.
 - Keep `src/lib/types` in sync with the SQL (or regenerate with
   `supabase gen types typescript`).
+- Migrations live in `supabase/migrations/` as ordered files
+  `0001_init.sql` … `0007_storage.sql`; they must apply cleanly, in order, to a
+  fresh database. `supabase/tests/rls_test.sql` is a repeatable RLS/RPC
+  acceptance script — run it against the DB after schema changes.
+
+### TODO — orphaned upload cleanup
+
+Files in the private `application-uploads` bucket are **immutable** (users can
+INSERT + SELECT but never UPDATE/DELETE), so a user cannot swap or remove a file
+a submitted application may reference. Files uploaded for an application that is
+then **abandoned** (never submitted via `submit_application`) are therefore left
+orphaned. A separate **admin job** should periodically delete
+`application-uploads` objects that are not referenced by any
+`application_files.storage_path`. This job is not yet implemented.
 
 ## Forms & Validation
 

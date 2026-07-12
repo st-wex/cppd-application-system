@@ -10,13 +10,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { placeholderCourses } from "@/lib/placeholder-data";
-import type { CourseLevel } from "@/lib/types";
-
-const levelLabels: Record<CourseLevel, string> = {
-  foundation: "Foundation",
-  diploma: "Diploma",
-  advanced: "Advanced",
-};
 
 export default function HomePage() {
   return (
@@ -42,14 +35,22 @@ export default function HomePage() {
             {placeholderCourses.map((course) => (
               <Card key={course.id} className="flex flex-col">
                 <CardHeader>
-                  <Badge variant="secondary" className="mb-2 w-fit">
-                    {levelLabels[course.level]}
-                  </Badge>
+                  {course.requirements.references.enabled ? (
+                    <Badge variant="secondary" className="mb-2 w-fit">
+                      References required
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="mb-2 w-fit">
+                      Open enrolment
+                    </Badge>
+                  )}
                   <CardTitle>{course.title}</CardTitle>
-                  <CardDescription>{course.summary}</CardDescription>
+                  <CardDescription>{course.description}</CardDescription>
                 </CardHeader>
                 <CardContent className="text-muted-foreground mt-auto text-sm">
-                  {course.durationMonths} months
+                  {course.requirements.uploads.length > 0
+                    ? `${course.requirements.uploads.length} document(s) required`
+                    : "No documents required"}
                 </CardContent>
                 <CardFooter>
                   <Button className="w-full">View details</Button>
