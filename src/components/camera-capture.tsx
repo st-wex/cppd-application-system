@@ -16,11 +16,14 @@ import {
 /**
  * Desktop camera-capture modal using getUserMedia. Shows a live preview, a
  * capture button, and a retake option. If camera access is unavailable or
- * denied it shows a clear message — the caller always exposes a plain
- * file-upload fallback alongside "Take photo" (see DocumentUpload).
+ * denied it shows a clear message — every caller always exposes a plain
+ * file-upload fallback alongside "Take photo".
  *
  * On mobile we don't use this modal at all: an <input capture> is sufficient and
  * more reliable there.
+ *
+ * Shared building block: used by both the profile document uploader and the
+ * course-application uploader.
  */
 function cameraErrorMessage(err: unknown): string {
   return err instanceof Error && err.message === "unsupported"

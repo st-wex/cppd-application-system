@@ -17,7 +17,7 @@ import { createClient } from "@/lib/supabase/client";
 import { compressImage } from "@/lib/image-compression";
 import { MAX_DOCUMENT_BYTES, type ProfileDocumentSlot } from "@/lib/validation";
 
-import { CameraCapture } from "./camera-capture";
+import { CameraCapture } from "@/components/camera-capture";
 import { signProfileDocument } from "./actions";
 
 const BUCKET = "profile-documents";
